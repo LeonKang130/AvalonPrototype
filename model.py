@@ -6,20 +6,22 @@ class Lancelot(nn.Module):
         super(Lancelot, self).__init__()
         self.encoder = nn.Sequential(
             nn.Linear(30, 64),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(64, 64),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(64, 64),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(64, 64),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(64, 26),
         )
         self.decoder = nn.Sequential(
             nn.Linear(32, 32),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(32, 32),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, 32),
+            nn.ReLU(inplace=True),
             nn.Linear(32, 3),
         )
 

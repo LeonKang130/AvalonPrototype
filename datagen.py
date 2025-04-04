@@ -97,7 +97,7 @@ def generate_pretraining_dataset(num_aggregates: int, sphere_resolution: int, de
         wo = wo.repeat(1, sphere_resolution).reshape(-1, 3)
         dataset[i, ..., 30:33] = wi
         dataset[i, ..., 33:36] = wo
-        dataset[i, ..., 36:] = evaluate_aggregate(aggregate, wi, wo, 32)
+        dataset[i, ..., 36:] = evaluate_aggregate(aggregate, wi, wo, 256)
     dataset[..., -3:] = torch.log(dataset[..., -3:] + 1.0)
     torch.save(dataset.reshape(-1, 39), "pretraining-dataset.pt")
 
@@ -106,12 +106,14 @@ def generate_verification_dataset(square_resolution: int, device: torch.device):
     wi, wo = generate_visualization_ws(square_resolution)
     wi = torch.tensor(wi, dtype=torch.float32, device=device)
     wo = torch.tensor(wo, dtype=torch.float32, device=device)
-    dataset = torch.empty(square_resolution ** 4, 36, dtype=torch.float32, device=device)
+    dataset = torch.empty(square_resolution ** 4, 39, dtype=torch.float32, device=device)
     dataset[..., :30] = aggregate.feature
     dataset[..., 30:33] = wi
     dataset[..., 33:36] = wo
+    image = evaluate_aggregate(aggregate, wi, wo, 32)
+    dataset[..., 36:] = torch.log(image + 1.0)
     torch.save(dataset, "verification-dataset.pt")
-    image = evaluate_aggregate(aggregate, wi, wo, 32).reshape(square_resolution ** 2, square_resolution ** 2, -1)
+    image = image.reshape(square_resolution ** 2, square_resolution ** 2, -1)
     save_exr_image(image, "reference.exr")
 
 def main():
