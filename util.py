@@ -1,79 +1,64 @@
+﻿import torch
 import numpy as np
-import numba
-import math
+from typing import Tuple
+import OpenEXR, Imath
 
-@numba.njit
-def sample_sphere_uniform(n: int):
-    phi = 2.0 * np.pi * np.random.rand(n, 1)
-    cos_theta = 1.0 - 2.0 * np.random.rand(n, 1)
-    sin_theta = np.sqrt(1.0 - np.square(cos_theta))
-    return np.hstack([sin_theta * np.cos(phi), sin_theta * np.sin(phi), cos_theta])
+def sample_sphere_uniform(n: int, device: torch.device) -> torch.Tensor:
+    phi = 2.0 * torch.pi * torch.rand(n, dtype=torch.float32, device=device)
+    cos_theta = 1.0 - 2.0 * torch.rand(n, dtype=torch.float32, device=device)
+    sin_theta = torch.sqrt(1.0 - torch.square(cos_theta))
+    return torch.stack((sin_theta * torch.cos(phi), sin_theta * torch.sin(phi), cos_theta), dim=-1)
 
-@numba.njit
-def sample_hemisphere_uniform(n: int):
-    phi = 2.0 * np.pi * np.random.rand(n, 1)
-    cos_theta = np.random.rand(n, 1)
-    sin_theta = np.sqrt(1.0 - np.square(cos_theta))
-    return np.hstack([sin_theta * np.cos(phi), sin_theta * np.sin(phi), cos_theta])
+def sample_hemisphere_uniform(n: int, device: torch.device) -> torch.Tensor:
+    phi = 2.0 * torch.pi * torch.rand(n, dtype=torch.float32, device=device)
+    cos_theta = torch.rand(n, dtype=torch.float32, device=device)
+    sin_theta = torch.sqrt(1.0 - torch.square(cos_theta))
+    return torch.stack((sin_theta * torch.cos(phi), sin_theta * torch.sin(phi), cos_theta), dim=-1)
 
-def sample_onb_uniform():
-    phi = 2.0 * np.pi * np.random.rand(1)
-    cos_theta = np.random.rand(1)
-    sin_theta = np.sqrt(1.0 - np.square(cos_theta))
-    n = np.hstack([sin_theta * np.cos(phi), sin_theta * np.sin(phi), cos_theta])
-    t = np.where((np.abs(n[0]) > 0.1)[..., None], np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]))
-    t = np.cross(n, t)
-    t /= np.linalg.norm(t)
-    b = np.cross(n, t)
-    ksi = 2.0 * np.pi * np.random.rand(1)
-    cos_ksi = np.cos(ksi)
-    sin_ksi = np.sin(ksi)
-    return np.array([cos_ksi * t + sin_ksi * b, cos_ksi * b - sin_ksi * t, n])
+def sample_hemisphere_cosine(n: int, device: torch.device) -> torch.Tensor:
+    phi = 2.0 * torch.pi * torch.rand(n, dtype=torch.float32, device=device)
+    cos_theta = torch.sqrt(torch.rand(n, dtype=torch.float32, device=device))
+    sin_theta = torch.sqrt(1.0 - torch.square(cos_theta))
+    return torch.stack((torch.cos(phi) * sin_theta, torch.sin(phi) * sin_theta, cos_theta), dim=-1)
 
-def evaluate_sf(n: int, rotate: bool = False) -> np.ndarray:
-    golden_ratio = (1.0 + math.sqrt(5.0)) / 2.0
-    i = np.arange(n, dtype=np.float32)[..., None]
-    phi = 2.0 * np.pi * np.modf(i * golden_ratio)[0]
-    cos_theta = 1.0 - (2.0 * i + 1.0) / n
-    sin_theta = np.sqrt(1.0 - np.square(cos_theta))
-    ws = np.hstack((sin_theta * np.cos(phi), sin_theta * np.sin(phi), cos_theta))
-    if rotate:
-        onb = sample_onb_uniform()
-        return ws @ onb.T
-    return np.hstack((sin_theta * np.cos(phi), sin_theta * np.sin(phi), cos_theta))
+def make_onb(ns: torch.Tensor) -> torch.Tensor:
+    a, b = torch.tensor([0.0, 1.0, 0.0], dtype=ns.dtype, device=ns.device), torch.tensor([1.0, 0.0, 0.0], dtype=ns.dtype, device=ns.device)
+    ts = torch.where(torch.abs(ns[..., 0:1]) > 0.1, a, b)
+    ts -= ns * (ns * ts).sum(dim=-1).unsqueeze(-1)
+    ts /= (torch.linalg.norm(ts, dim=-1) + torch.finfo(torch.float32).eps).unsqueeze(-1)
+    bs = torch.linalg.cross(ns, ts)
+    return torch.stack((ts, bs, ns), dim=-2)
 
-@numba.njit
-def evaluate_sh(w: np.ndarray) -> np.ndarray:
+def sample_onb_uniform(n: int, device: torch.device) -> torch.Tensor:
+    onb = make_onb(sample_sphere_uniform(n, device))
+    ksi = torch.rand(n, 1, dtype=torch.float32, device=device)
+    cos_ksi, sin_ksi = torch.cos(ksi), torch.sin(ksi)
+    return torch.stack([
+        cos_ksi * onb[..., 0] + sin_ksi * onb[..., 1],
+        cos_ksi * onb[..., 1] - sin_ksi * onb[..., 0],
+        onb[..., 2]
+    ], dim=-2)
+
+def evaluate_sf(n: int, device: torch.device) -> torch.Tensor:
+    phi = 2.0 * torch.pi * torch.rand(n, dtype=torch.float32, device=device)
+    cos_theta = 1.0 - (2.0 * torch.arange(n, dtype=torch.float32, device=device) + 1.0) / n
+    sin_theta = torch.sqrt(1.0 - torch.square(cos_theta))
+    return torch.stack((torch.cos(phi) * sin_theta, torch.sin(phi) * sin_theta, cos_theta), dim=-1)
+
+def evaluate_sh(ws: torch.Tensor) -> torch.Tensor:
     ks = 0.28209479177387814, 0.4886025119029199
     num_spherical_harmonic_basis = 4
-    """
-    if w.shape[-1] != 3:
-       print("Input directions must be an array of 3D vectors")
-       exit(1)
-    """
-    sh = np.empty(w.shape[:-1] + (num_spherical_harmonic_basis,))
+    sh = torch.empty(ws.shape[:-1] + (num_spherical_harmonic_basis,), dtype=ws.dtype, device=ws.device)
     sh[..., 0] = ks[0]
-    sh[..., 1] = -ks[1] * w[..., 1]
-    sh[..., 2] = ks[1] * w[..., 2]
-    sh[..., 3] = -ks[1] * w[..., 0]
+    sh[..., 1] = -ks[1] * ws[..., 1]
+    sh[..., 2] = ks[1] * ws[..., 2]
+    sh[..., 3] = -ks[1] * ws[..., 0]
     return sh
 
-def fit_sh_coefficients(ws: np.ndarray, ys: np.ndarray) -> np.ndarray:
-    """
-    if ws.shape[-1] != 3:
-        print("Input directions must be an array of 3D vectors")
-        exit(1)
-    """
-    a = evaluate_sh(ws)
-    return np.linalg.lstsq(a, ys, rcond=None)[0]
+def fit_sh_coefficients(ws: torch.Tensor, ys: torch.Tensor) -> torch.Tensor:
+    return torch.linalg.lstsq(evaluate_sh(ws), ys, rcond=None).solution
 
-@numba.njit
 def evaluate_octahedron(uv: np.ndarray) -> np.ndarray:
-    """
-    if uv.shape[-1] != 2 or uv.ndim == 1:
-        print("Input directions must be an array of 2D vectors")
-        exit(1)
-    """
     uv = 2.0 * uv - 1.0
     uvp = np.abs(uv)
     signed_distance = 1.0 - uvp[..., 0] - uvp[..., 1]
@@ -84,3 +69,18 @@ def evaluate_octahedron(uv: np.ndarray) -> np.ndarray:
     cos_phi = np.copysign(np.cos(phi), uv[..., 0])
     sin_phi = np.copysign(np.sin(phi), uv[..., 1])
     return np.stack((r * cos_phi, r * sin_phi, z), axis=-1)
+
+def generate_visualization_ws(resolution: int) -> Tuple[np.ndarray, np.ndarray]:
+    i = np.arange(resolution * resolution)
+    xy = np.hstack((np.tile(i, resolution * resolution)[..., None], np.repeat(i, resolution * resolution)[..., None]))
+    xy_wi, xy_wo = np.divmod(xy, resolution)
+    return evaluate_octahedron((xy_wi + 0.5) / resolution), evaluate_octahedron((xy_wo + 0.5) / resolution)
+
+def save_exr_image(image: torch.Tensor, filename: str):
+    exr_data = [image[..., i].cpu().numpy().astype(np.float32).tobytes() for i in range(image.shape[-1])]
+    header = OpenEXR.Header(*image.shape[:2])
+    channels = ["R", "G", "B", "A"][:len(exr_data)]
+    header["channels"] = {c: Imath.Channel(Imath.PixelType(Imath.PixelType.FLOAT)) for c in channels}
+    exr_file = OpenEXR.OutputFile(filename, header)
+    exr_file.writePixels(dict(zip(channels, exr_data)))
+    exr_file.close()

@@ -4,3 +4,5 @@
 __pycache__/
 # Program output
 /*.exr
+/*.pt
+/*.npy

@@ -37,6 +37,10 @@ where $p(n_k)$ is the probability density function for normal sample $n_k$ to be
 To evaluate the behaviors of aggregated appearances from real triangles within a voxel, we generate random triangles within a voxel and numerically estimate the aggregated appearance by sampling points on the triangles. After that, we can use these surfels to evaluate the value of the aggregated appearance given different pairs of $\omega_i,\omega_o$ using the following equation:
 
 $$
-\hat f_\mathrm{novis}\approx
+\hat f_\mathrm{novis}\approx\frac{\sum_{k=1}^Nf(x_k,\omega_i,\omega_o)\langle n_x,\omega_i\rangle\langle n_x,\omega_o\rangle/p(x_k) }{\sum_{k=1}^N\langle n_x,\omega_o\rangle/p(x_k)}
 $$
+
+where $p(x_k)$ is the probability density function for point $x_k$ to be selected. We assume all the triangles to be double-sided, which means that 
+
+To sample the triangles within the voxel we construct an alias table using the surface area of the triangles as the input weights.
 
