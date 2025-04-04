@@ -1,15 +1,14 @@
-import torch.jit
-
 from model import *
 from util import save_exr_image
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+import psutil, os
 
 def main():
     pretraining_data = torch.load("pretraining-dataset.pt")
     dataset = TensorDataset(pretraining_data[..., :-3].clone().detach().cuda(), pretraining_data[..., -3:].clone().detach().cuda())
     dataloader = DataLoader(dataset, batch_size=1024, shuffle=True)
-    model = torch.jit.script(Lancelot()).cuda()
+    model = Lancelot().cuda()
     optimizer = torch.optim.Adam(model.parameters())
     criterion = torch.nn.L1Loss()
     verification_data = torch.load("verification-dataset.pt").cuda()
@@ -32,4 +31,6 @@ def main():
                 save_exr_image(prediction.reshape(sphere_resolution ** 2, sphere_resolution ** 2, 3), f"verification-{i // 4}.exr")
 
 if __name__ == "__main__":
+    p = psutil.Process(os.getpid())
+    p.nice(psutil.HIGH_PRIORITY_CLASS)
     main()
